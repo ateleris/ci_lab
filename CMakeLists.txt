@@ -14,7 +14,7 @@ if (CFE_EDS_ENABLED_BUILD)
 else()
   list(APPEND APP_SRC_FILES
     fsw/src/ci_lab_dispatch.c
-    fsw/src/ci_lab_passthru_decode.c
+    fsw/src/ci_lab_crypto_decode.c
   )
 endif()
 
@@ -23,3 +23,4 @@ endif()
 add_cfe_app(ci_lab ${APP_SRC_FILES})
 
 target_include_directories(ci_lab PUBLIC fsw/inc)
+add_cfe_app_dependency(ci_lab crypto)

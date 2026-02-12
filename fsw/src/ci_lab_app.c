@@ -31,6 +31,11 @@
 #include "ci_lab_version.h"
 #include "ci_lab_decode.h"
 
+#include <assert.h>
+#include "crypto.h"
+#include "crypto_error.h"
+#include "sa_interface.h"
+
 /*
 ** CI Global Data
 */
@@ -95,16 +100,11 @@ void CI_LAB_delete_callback(void)
     OS_close(CI_LAB_Global.SocketID);
 }
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  */
-/*                                                                            */
-/* CI initialization                                                          */
-/*                                                                            */
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/
-void CI_LAB_TaskInit(void)
+static void CI_LAB_Init(void) 
 {
     int32  status;
     uint16 DefaultListenPort;
-    char VersionString[CI_LAB_CFG_MAX_VERSION_STR_LEN];
+    char   VersionString[CI_LAB_CFG_MAX_VERSION_STR_LEN];
 
     memset(&CI_LAB_Global, 0, sizeof(CI_LAB_Global));
 
@@ -180,11 +180,48 @@ void CI_LAB_TaskInit(void)
     CFE_MSG_Init(CFE_MSG_PTR(CI_LAB_Global.HkTlm.TelemetryHeader), CFE_SB_ValueToMsgId(CI_LAB_HK_TLM_MID),
                  sizeof(CI_LAB_Global.HkTlm));
 
-    CFE_Config_GetVersionString(VersionString, CI_LAB_CFG_MAX_VERSION_STR_LEN, "CI Lab App",
-        CI_LAB_VERSION, CI_LAB_BUILD_CODENAME, CI_LAB_LAST_OFFICIAL);
+    CFE_Config_GetVersionString(VersionString, CI_LAB_CFG_MAX_VERSION_STR_LEN, "CI Lab App", CI_LAB_VERSION,
+                                CI_LAB_BUILD_CODENAME, CI_LAB_LAST_OFFICIAL);
 
-    CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Initialized.%s",
-                      VersionString);
+    CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Initialized.%s", VersionString);
+}
+
+static void CI_LAB_CryptoLib_Init(void)
+{
+    // Setup & Initialize CryptoLib
+    Crypto_Config_CryptoLib(KEY_TYPE_INTERNAL, MC_TYPE_INTERNAL, SA_TYPE_INMEMORY, CRYPTOGRAPHY_TYPE_LIBGCRYPT,
+                            IV_INTERNAL, CRYPTO_TC_CREATE_FECF_TRUE, TC_PROCESS_SDLS_PDUS_TRUE, TC_HAS_PUS_HDR,
+                            TC_IGNORE_SA_STATE_FALSE, TC_IGNORE_ANTI_REPLAY_FALSE, TC_UNIQUE_SA_PER_MAP_ID_FALSE,
+                            TC_CHECK_FECF_TRUE, 0x3F, SA_INCREMENT_NONTRANSMITTED_IV_TRUE);
+
+    GvcidManagedParameters_t params = {0,    0x0003,    42, TC_NO_FECF, AOS_FHEC_NA, AOS_IZ_NA, 0, TC_NO_SEGMENT_HDRS,
+                                       1024, TC_OCF_NA, 1};
+    Crypto_Config_Add_Gvcid_Managed_Parameters(params);
+    params.vcid = 44;
+    Crypto_Config_Add_Gvcid_Managed_Parameters(params);
+
+    int status = Crypto_Init();
+    assert(CRYPTO_LIB_SUCCESS == status);
+
+    SecurityAssociation_t *sa;
+    status = sa_if->sa_get_from_spi(42, &sa);
+    assert(CRYPTO_LIB_SUCCESS == status);
+    sa->sa_state = SA_OPERATIONAL;
+
+    memset(sa->iv, 0x00, sa->iv_len);
+
+    CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Crypto Lib Initialized.");
+}
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  */
+/*                                                                            */
+/* CI initialization                                                          */
+/*                                                                            */
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/
+void CI_LAB_TaskInit(void)
+{
+    CI_LAB_CryptoLib_Init();
+    CI_LAB_Init();
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/

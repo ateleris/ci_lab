@@ -38,7 +38,7 @@
  * This definition controls the maximum size message that can be ingested
  * from the UDP socket
  */
-#define CI_LAB_MAX_INGEST 768
+#define CI_LAB_MAX_INGEST 4000 // 768
 
 /**
  * @brief Number of packets to process per ingest cycle
