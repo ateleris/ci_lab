@@ -18,28 +18,11 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command and telemetry
- *   message payload and constant definitions.
+ *   CI_LAB Application Topic IDs
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef DEFAULT_CI_LAB_TOPICID_VALUES_H
+#define DEFAULT_CI_LAB_TOPICID_VALUES_H
 
-#include "ci_lab_fcncodes.h"
-
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
-{
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
+#define CI_LAB_MISSION_TIDVAL(x) DEFAULT_CI_LAB_MISSION_##x##_TOPICID
 
 #endif

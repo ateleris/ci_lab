@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.5)
 project(CFS_CI_LAB C)
 
 set(APP_SRC_FILES
@@ -6,7 +5,7 @@ set(APP_SRC_FILES
     fsw/src/ci_lab_cmds.c
 )
 
-if (CFE_EDS_ENABLED_BUILD)
+if (CFE_EDS_ENABLED)
   list(APPEND APP_SRC_FILES
     fsw/src/ci_lab_eds_dispatch.c
     fsw/src/ci_lab_eds_decode.c

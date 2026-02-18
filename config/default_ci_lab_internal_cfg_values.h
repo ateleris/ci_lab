@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -25,41 +25,14 @@
  * to items in this file only affect the local module and will be transparent
  * to external entities that are using the public interface(s).
  *
- * @note This file may be overridden/superceded by mission-provided defintions
+ * @note This file may be overridden/superceded by mission-provided definitions
  * either by overriding this header or by generating definitions from a command/data
  * dictionary tool.
  */
-#ifndef CI_LAB_INTERNAL_CFG_H
-#define CI_LAB_INTERNAL_CFG_H
+#ifndef DEFAULT_CI_LAB_INTERNAL_CFG_VALUES_H
+#define DEFAULT_CI_LAB_INTERNAL_CFG_VALUES_H
 
-/**
- * @brief The size of the input buffer
- *
- * This definition controls the maximum size message that can be ingested
- * from the UDP socket
- */
-#define CI_LAB_MAX_INGEST 4000 // 768
-
-/**
- * @brief Number of packets to process per ingest cycle
- */
-#define CI_LAB_MAX_INGEST_PKTS 10
-
-/**
- * @brief SB Receive timeout
- */
-#define CI_LAB_SB_RECEIVE_TIMEOUT 500
-
-/**
- * @brief Uplink Receive timeout
- */
-#define CI_LAB_UPLINK_RECEIVE_TIMEOUT OS_CHECK
-
-/**
- * @brief The depth of the command input pipe
- *
- * This controls the depth of the SB input pipe
- */
-#define CI_LAB_PIPE_DEPTH 32
+/* Use the default configuration value for all */
+#define CI_LAB_PLATFORM_CFGVAL(x) DEFAULT_CI_LAB_PLATFORM_##x
 
 #endif

@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -44,7 +44,7 @@
 CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 {
     CFE_SB_Buffer_t *IngestBuffer;
-    const size_t     IngestSize = CI_LAB_MAX_INGEST;
+    const size_t     IngestSize = CI_LAB_PLATFORM_MAX_INGEST;
 
     IngestBuffer = CFE_SB_AllocateMessageBuffer(IngestSize);
     if (IngestBuffer == NULL)

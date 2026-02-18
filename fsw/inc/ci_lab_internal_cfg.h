@@ -29,10 +29,45 @@
  * either by overriding this header or by generating definitions from a command/data
  * dictionary tool.
  */
-#ifndef DEFAULT_CI_LAB_PLATFORM_CFG_H
-#define DEFAULT_CI_LAB_PLATFORM_CFG_H
+#ifndef CI_LAB_INTERNAL_CFG_H
+#define CI_LAB_INTERNAL_CFG_H
 
 #include "ci_lab_mission_cfg.h"
-#include "ci_lab_internal_cfg.h"
+#include "ci_lab_internal_cfg_values.h"
+
+/**
+ * @brief The size of the input buffer
+ *
+ * This definition controls the maximum size message that can be ingested
+ * from the UDP socket
+ */
+#define CI_LAB_PLATFORM_MAX_INGEST         CI_LAB_PLATFORM_CFGVAL(MAX_INGEST)
+#define DEFAULT_CI_LAB_PLATFORM_MAX_INGEST 768
+
+/**
+ * @brief Number of packets to process per ingest cycle
+ */
+#define CI_LAB_PLATFORM_MAX_INGEST_PKTS         CI_LAB_PLATFORM_CFGVAL(MAX_INGEST_PKTS)
+#define DEFAULT_CI_LAB_PLATFORM_MAX_INGEST_PKTS 10
+
+/**
+ * @brief SB Receive timeout
+ */
+#define CI_LAB_PLATFORM_SB_RECEIVE_TIMEOUT         CI_LAB_PLATFORM_CFGVAL(SB_RECEIVE_TIMEOUT)
+#define DEFAULT_CI_LAB_PLATFORM_SB_RECEIVE_TIMEOUT 500
+
+/**
+ * @brief Uplink Receive timeout
+ */
+#define CI_LAB_PLATFORM_UPLINK_RECEIVE_TIMEOUT         CI_LAB_PLATFORM_CFGVAL(UPLINK_RECEIVE_TIMEOUT)
+#define DEFAULT_CI_LAB_PLATFORM_UPLINK_RECEIVE_TIMEOUT OS_CHECK
+
+/**
+ * @brief The depth of the command input pipe
+ *
+ * This controls the depth of the SB input pipe
+ */
+#define CI_LAB_PLATFORM_PIPE_DEPTH         CI_LAB_PLATFORM_CFGVAL(PIPE_DEPTH)
+#define DEFAULT_CI_LAB_PLATFORM_PIPE_DEPTH 32
 
 #endif

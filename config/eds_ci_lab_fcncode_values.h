@@ -18,28 +18,22 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command and telemetry
- *   message payload and constant definitions.
+ *   Specification for the CFE Executive Services (CI_LAB) command function codes
+ *
+ * @note
+ *   This file should be strictly limited to the command/function code (CC)
+ *   macro definitions.  Other definitions such as enums, typedefs, or other
+ *   macros should be placed in the msgdefs.h or msg.h files.
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef EDS_CI_LAB_FCNCODES_H
+#define EDS_CI_LAB_FCNCODES_H
 
-#include "ci_lab_fcncodes.h"
+#include "ci_lab_eds_cc.h"
 
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
-{
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
+/************************************************************************
+ * Macro Definitions
+ ************************************************************************/
+
+#define CI_LAB_CCVAL(x) EDS_CONTAINER_CI_LAB_##x##_CC
 
 #endif

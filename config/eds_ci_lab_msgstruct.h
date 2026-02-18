@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -18,24 +18,15 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command function codes
- *
- * @note
- *   This file should be strictly limited to the command/function code (CC)
- *   macro definitions.  Other definitions such as enums, typedefs, or other
- *   macros should be placed in the msgdefs.h or msg.h files.
+ *   Specification for the CI_LAB command and telemetry
+ *   message data types.
  */
-#ifndef CI_LAB_FCNCODES_H
-#define CI_LAB_FCNCODES_H
+#ifndef EDS_CI_LAB_MSGSTRUCT_H
+#define EDS_CI_LAB_MSGSTRUCT_H
 
 /************************************************************************
- * Macro Definitions
+ * Includes
  ************************************************************************/
-
-/*
-** CI_LAB command codes
-*/
-#define CI_LAB_NOOP_CC                 0
-#define CI_LAB_RESET_COUNTERS_CC       1
+#include "ci_lab_eds_typedefs.h"
 
 #endif

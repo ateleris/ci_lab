@@ -41,7 +41,7 @@
  * Define a lookup table for CI lab command codes
  */
 /* clang-format off */
-static const EdsDispatchTable_CI_LAB_Application_CFE_SB_Telecommand_t CI_LAB_TC_DISPATCH_TABLE = 
+static const EdsDispatchTable_EdsComponent_CI_LAB_Application_CFE_SB_Telecommand_t CI_LAB_TC_DISPATCH_TABLE = 
 {
     .CMD =
     {
@@ -78,7 +78,7 @@ void CI_LAB_TaskPipe(const CFE_SB_Buffer_t *SBBufPtr)
 
     CFE_MSG_GetMsgId(&SBBufPtr->Msg, &MsgId);
 
-    Status = EdsDispatch_CI_LAB_Application_Telecommand(SBBufPtr, &CI_LAB_TC_DISPATCH_TABLE);
+    Status = EdsDispatch_EdsComponent_CI_LAB_Application_Telecommand(SBBufPtr, &CI_LAB_TC_DISPATCH_TABLE);
 
     if (Status != CFE_SUCCESS)
     {

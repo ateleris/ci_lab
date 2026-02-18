@@ -18,28 +18,26 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command and telemetry
- *   message payload and constant definitions.
+ *   Specification for the CI_LAB command function codes
+ *
+ * @note
+ *   This file should be strictly limited to the command/function code (CC)
+ *   macro definitions.  Other definitions such as enums, typedefs, or other
+ *   macros should be placed in the msgdefs.h or msg.h files.
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef DEFAULT_CI_LAB_FCNCODE_VALUES_H
+#define DEFAULT_CI_LAB_FCNCODE_VALUES_H
 
-#include "ci_lab_fcncodes.h"
+/************************************************************************
+ * Macro Definitions
+ ************************************************************************/
 
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
+#define CI_LAB_CCVAL(x) CI_LAB_FunctionCode_##x
+
+enum CI_LAB_FunctionCode
 {
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
+    CI_LAB_FunctionCode_NOOP           = 0,
+    CI_LAB_FunctionCode_RESET_COUNTERS = 1,
+};
 
 #endif

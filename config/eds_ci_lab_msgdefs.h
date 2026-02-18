@@ -21,25 +21,10 @@
  *   Specification for the CI_LAB command and telemetry
  *   message payload and constant definitions.
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef EDS_CI_LAB_MSGDEFS_H
+#define EDS_CI_LAB_MSGDEFS_H
 
+#include "ci_lab_eds_typedefs.h"
 #include "ci_lab_fcncodes.h"
-
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
-{
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
 
 #endif

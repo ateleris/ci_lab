@@ -18,28 +18,21 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command and telemetry
- *   message payload and constant definitions.
+ *   CI_LAB Application Public Definitions
+ *
+ * This provides default values for configurable items that affect
+ * the interface(s) of this module.  This includes the CMD/TLM message
+ * interface, tables definitions, and any other data products that
+ * serve to exchange information with other entities.
+ *
+ * @note This file may be overridden/superceded by mission-provided definitions
+ * either by overriding this header or by generating definitions from a command/data
+ * dictionary tool.
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef DEFAULT_CI_LAB_INTERFACE_CFG_VALUES_H
+#define DEFAULT_CI_LAB_INTERFACE_CFG_VALUES_H
 
-#include "ci_lab_fcncodes.h"
-
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
-{
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
+/* Use the default configuration value for all */
+#define CI_LAB_MISSION_CFGVAL(x) DEFAULT_CI_LAB_MISSION_##x
 
 #endif

@@ -18,28 +18,15 @@
 
 /**
  * @file
- *   Specification for the CI_LAB command and telemetry
- *   message payload and constant definitions.
+ *   CI_LAB Application Message IDs
  */
-#ifndef DEFAULT_CI_LAB_MSGDEFS_H
-#define DEFAULT_CI_LAB_MSGDEFS_H
+#ifndef DEFAULT_CI_LAB_MSGID_VALUES_H
+#define DEFAULT_CI_LAB_MSGID_VALUES_H
 
-#include "ci_lab_fcncodes.h"
+#include "cfe_core_api_base_msgids.h"
+#include "ci_lab_topicids.h"
 
-/*************************************************************************/
-/*
-** Payload definition (CI_LAB housekeeping)...
-*/
-typedef struct
-{
-    uint8  CommandCounter;
-    uint8  CommandErrorCounter;
-    uint8  EnableChecksums;
-    uint8  SocketConnected;
-    uint8  Spare1[8];
-    uint32 IngestPackets;
-    uint32 IngestErrors;
-    uint32 Spare2;
-} CI_LAB_HkTlm_Payload_t;
+#define CI_LAB_CMD_PLATFORM_MIDVAL(x) CFE_PLATFORM_CMD_TOPICID_TO_MIDV(CI_LAB_MISSION_##x##_TOPICID)
+#define CI_LAB_TLM_PLATFORM_MIDVAL(x) CFE_PLATFORM_TLM_TOPICID_TO_MIDV(CI_LAB_MISSION_##x##_TOPICID)
 
 #endif

@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -20,15 +20,15 @@
  * @file
  *   CI_LAB Application Message IDs
  */
-#ifndef CI_LAB_MSGIDS_H
-#define CI_LAB_MSGIDS_H
+#ifndef DEFAULT_CI_LAB_MSGIDS_H
+#define DEFAULT_CI_LAB_MSGIDS_H
 
 #include "cfe_core_api_base_msgids.h"
-#include "ci_lab_topicids.h"
+#include "ci_lab_msgid_values.h"
 
-#define CI_LAB_CMD_MID         CFE_PLATFORM_CMD_TOPICID_TO_MIDV(CFE_MISSION_CI_LAB_CMD_TOPICID)
-#define CI_LAB_SEND_HK_MID     CFE_PLATFORM_CMD_TOPICID_TO_MIDV(CFE_MISSION_CI_LAB_SEND_HK_TOPICID)
-#define CI_LAB_READ_UPLINK_MID CFE_PLATFORM_CMD_TOPICID_TO_MIDV(CFE_MISSION_CI_LAB_READ_UPLINK_TOPICID)
-#define CI_LAB_HK_TLM_MID      CFE_PLATFORM_TLM_TOPICID_TO_MIDV(CFE_MISSION_CI_LAB_HK_TLM_TOPICID)
+#define CI_LAB_CMD_MID         CI_LAB_CMD_PLATFORM_MIDVAL(CMD)
+#define CI_LAB_SEND_HK_MID     CI_LAB_CMD_PLATFORM_MIDVAL(SEND_HK)
+#define CI_LAB_READ_UPLINK_MID CI_LAB_CMD_PLATFORM_MIDVAL(READ_UPLINK)
+#define CI_LAB_HK_TLM_MID      CI_LAB_TLM_PLATFORM_MIDVAL(HK_TLM)
 
 #endif

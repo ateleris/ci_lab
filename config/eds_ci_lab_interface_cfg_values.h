@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -18,14 +18,22 @@
 
 /**
  * @file
- *   CI_LAB Application Topic IDs
+ *   CI_LAB Application Public Definitions
+ *
+ * This provides default values for configurable items that affect
+ * the interface(s) of this module.  This includes the CMD/TLM message
+ * interface, tables definitions, and any other data products that
+ * serve to exchange information with other entities.
+ *
+ * @note This file may be overridden/superceded by mission-provided definitions
+ * either by overriding this header or by generating definitions from a command/data
+ * dictionary tool.
  */
-#ifndef CI_LAB_TOPICIDS_H
-#define CI_LAB_TOPICIDS_H
+#ifndef EDS_CI_LAB_INTERFACE_CFG_H
+#define EDS_CI_LAB_INTERFACE_CFG_H
 
-#define CFE_MISSION_CI_LAB_CMD_TOPICID         0x84
-#define CFE_MISSION_CI_LAB_SEND_HK_TOPICID     0x85
-#define CFE_MISSION_CI_LAB_READ_UPLINK_TOPICID 0x86
-#define CFE_MISSION_CI_LAB_HK_TLM_TOPICID      0x84
+#include "ci_lab_eds_designparameters.h"
+
+#define CI_LAB_MISSION_CFGVAL(x) EdsParam_CI_LAB_##x
 
 #endif

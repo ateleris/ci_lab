@@ -1,7 +1,7 @@
 /************************************************************************
- * NASA Docket No. GSC-18,719-1, and identified as “core Flight System: Bootes”
+ * NASA Docket No. GSC-19,200-1, and identified as "cFS Draco"
  *
- * Copyright (c) 2020 United States Government as represented by the
+ * Copyright (c) 2023 United States Government as represented by the
  * Administrator of the National Aeronautics and Space Administration.
  * All Rights Reserved.
  *
@@ -24,14 +24,14 @@
  * This is a compatibility header for the "ci_lab_msg.h" file that has
  * traditionally provided the message definitions for cFS apps.
  *
- * @note This file may be overridden/superceded by mission-provided defintions
+ * @note This file may be overridden/superceded by mission-provided definitions
  * either by overriding this header or by generating definitions from a command/data
  * dictionary tool.
  */
-#ifndef CI_LAB_MSG_H
-#define CI_LAB_MSG_H
+#ifndef DEFAULT_CI_LAB_MSG_H
+#define DEFAULT_CI_LAB_MSG_H
 
-#include "ci_lab_interface_cfg.h"
+#include "ci_lab_mission_cfg.h"
 #include "ci_lab_msgdefs.h"
 #include "ci_lab_msgstruct.h"
 
