@@ -42,7 +42,7 @@
  * from the UDP socket
  */
 #define CI_LAB_PLATFORM_MAX_INGEST         CI_LAB_PLATFORM_CFGVAL(MAX_INGEST)
-#define DEFAULT_CI_LAB_PLATFORM_MAX_INGEST 768
+#define DEFAULT_CI_LAB_PLATFORM_MAX_INGEST 4096
 
 /**
  * @brief Number of packets to process per ingest cycle
