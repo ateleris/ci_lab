@@ -11,7 +11,7 @@
 CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 {
     CFE_SB_Buffer_t *IngestBuffer;
-    const size_t     IngestSize = CI_LAB_MAX_INGEST;
+    const size_t     IngestSize = CI_LAB_PLATFORM_MAX_INGEST;
 
     IngestBuffer = CFE_SB_AllocateMessageBuffer(IngestSize);
     if (IngestBuffer == NULL)
