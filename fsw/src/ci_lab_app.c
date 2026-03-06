@@ -202,6 +202,10 @@ static void CI_LAB_CryptoLib_Init(void)
     params.vcid = 44;
     Crypto_Config_Add_Gvcid_Managed_Parameters(params);
 
+    GvcidManagedParameters_t tm_params = {0,    0x0003,    6, TM_NO_FECF, AOS_FHEC_NA, AOS_IZ_NA, 0, TC_NO_SEGMENT_HDRS,
+                                          1786, TM_NO_OCF, 1};
+    Crypto_Config_Add_Gvcid_Managed_Parameters(tm_params);
+
     int status = Crypto_Init();
     assert(CRYPTO_LIB_SUCCESS == status);
 
