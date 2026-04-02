@@ -40,4 +40,13 @@
 #define CI_LAB_SB_SUBSCRIBE_UL_ERR_EID  14
 #define CI_LAB_CMD_LEN_ERR_EID          16
 
+/* TC segment reassembly events */
+#define CI_LAB_SEG_NO_FIRST_EID     17  /* continuation/last received with no active reassembly */
+#define CI_LAB_SEG_RESTART_EID      18  /* first segment received while reassembly already active */
+#define CI_LAB_SEG_ABORT_EID        19  /* unsegmented frame discards in-progress reassembly */
+#define CI_LAB_SEG_OVERFLOW_EID     20  /* reassembled packet exceeds buffer limit */
+#define CI_LAB_SEG_MAPID_ERR_EID    21  /* MAP ID mismatch mid-reassembly */
+#define CI_LAB_SEG_COMPLETE_EID     22  /* reassembly completed successfully */
+#define CI_LAB_SEG_BLOCKED_ERR_EID  23  /* truncated SP detected in blocked PDU */
+
 #endif

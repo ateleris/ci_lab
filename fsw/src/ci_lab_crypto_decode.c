@@ -8,6 +8,335 @@
 
 #include "crypto.h"
 
+/* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
+extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
+
+/* -------------------------------------------------------------------------
+ * MAP channel helpers
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Return the reassembly channel for map_id, or NULL if none is available.
+ * A channel is "available" for a given map_id when it is either idle or
+ * already tracking that map_id.
+ */
+static CI_LAB_ReassemblyState_t *CI_LAB_FindMapChannel(uint8_t map_id)
+{
+    int i;
+    for (i = 0; i < CI_LAB_NUM_MAP_CHANNELS; i++)
+    {
+        if (!CI_LAB_Global.Reassembly[i].in_progress || CI_LAB_Global.Reassembly[i].map_id == map_id)
+        {
+            return &CI_LAB_Global.Reassembly[i];
+        }
+    }
+    return NULL; /* all channels busy with a different MAP ID */
+}
+
+/** Reset a reassembly channel to idle. */
+static void CI_LAB_ResetChannel(CI_LAB_ReassemblyState_t *ch)
+{
+    ch->in_progress = false;
+    ch->offset      = 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Blocking: extract multiple SPs from a single PDU (seq_flags = 0b11)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Walk the PDU interpreting it as concatenated CCSDS Space Packets.
+ * Each SP is dispatched individually to the Software Bus.
+ * Returns the number of SPs successfully dispatched.
+ */
+static int CI_LAB_ExtractBlockedSPs(const uint8_t *pdu, uint16_t pdu_len)
+{
+    int      count  = 0;
+    uint16_t offset = 0;
+
+    while (offset + 6 <= pdu_len) /* need at least 6 bytes for SP primary header */
+    {
+        /* CCSDS SP: Packet Data Length field (bytes 4-5) = total data field length - 1.
+         * Total SP size = 6 (primary header) + Packet Data Length + 1 = 7 + field value. */
+        uint16_t data_len = ((uint16_t)pdu[offset + 4] << 8) | (uint16_t)pdu[offset + 5];
+        uint16_t sp_len   = (uint16_t)(7 + data_len);
+
+        if ((uint32_t)offset + sp_len > pdu_len)
+        {
+            CFE_EVS_SendEvent(CI_LAB_SEG_BLOCKED_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "CI: truncated SP in blocked PDU at offset %u (need %u, have %u)",
+                              (unsigned)offset, (unsigned)sp_len, (unsigned)(pdu_len - offset));
+            break;
+        }
+
+        CFE_SB_Buffer_t *sbBuf = CFE_SB_AllocateMessageBuffer(sp_len);
+        if (sbBuf == NULL)
+        {
+            CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "CI_LAB: blocked SP buffer alloc failed at offset %u", (unsigned)offset);
+            break;
+        }
+
+        memcpy(sbBuf, &pdu[offset], sp_len);
+        CFE_SB_TransmitBuffer(sbBuf, false);
+        CI_LAB_Global.HkTlm.Payload.IngestPackets++;
+        count++;
+
+        offset = (uint16_t)(offset + sp_len);
+    }
+
+    return count;
+}
+
+/* -------------------------------------------------------------------------
+ * Segment handlers (called after Crypto_TC_ProcessSecurity)
+ * The original network buffer has already been released by the caller
+ * before these functions are invoked.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * seq_flags = 0b11 (Unsegmented / Blocked)
+ *
+ * If the PDU contains exactly one SP, return it via out_destBuff.
+ * If it contains multiple SPs (blocking), dispatch them internally and
+ * return CI_LAB_STATUS_DISPATCHED with *out_destBuff = NULL.
+ */
+static CFE_Status_t CI_LAB_HandleUnsegmented(const TC_t *tcBuff, uint8_t map_id,
+                                              CFE_SB_Buffer_t **out_destBuff)
+{
+    int i;
+
+    /* Discard any in-progress reassembly — an unsegmented frame resets state */
+    for (i = 0; i < CI_LAB_NUM_MAP_CHANNELS; i++)
+    {
+        if (CI_LAB_Global.Reassembly[i].in_progress)
+        {
+            CFE_EVS_SendEvent(CI_LAB_SEG_ABORT_EID, CFE_EVS_EventType_INFORMATION,
+                              "CI: unsegmented TC frame discards in-progress reassembly (MAP %u)",
+                              (unsigned)CI_LAB_Global.Reassembly[i].map_id);
+            CI_LAB_ResetChannel(&CI_LAB_Global.Reassembly[i]);
+        }
+    }
+
+    if (tcBuff->tc_pdu_len < 7)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: unsegmented PDU too short (%u bytes)", (unsigned)tcBuff->tc_pdu_len);
+        *out_destBuff = NULL;
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    /* Check whether the PDU contains exactly one SP or multiple (blocking) */
+    uint16_t data_len  = ((uint16_t)tcBuff->tc_pdu[4] << 8) | (uint16_t)tcBuff->tc_pdu[5];
+    uint16_t first_len = (uint16_t)(7 + data_len);
+
+    if (first_len == tcBuff->tc_pdu_len)
+    {
+        /* Single SP — allocate SB buffer and return it */
+        CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(tcBuff->tc_pdu_len);
+        if (spacePacket == NULL)
+        {
+            CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "CI_LAB: unsegmented SP buffer alloc failed");
+            *out_destBuff = NULL;
+            return CFE_SB_BUF_ALOC_ERR;
+        }
+        memcpy(spacePacket, tcBuff->tc_pdu, tcBuff->tc_pdu_len);
+        *out_destBuff = spacePacket;
+        return CFE_SUCCESS;
+    }
+    else if (first_len < tcBuff->tc_pdu_len)
+    {
+        /* Blocked PDU: multiple SPs concatenated */
+        CI_LAB_ExtractBlockedSPs(tcBuff->tc_pdu, tcBuff->tc_pdu_len);
+        *out_destBuff = NULL;
+        return CI_LAB_STATUS_DISPATCHED;
+    }
+    else
+    {
+        /* first_len > pdu_len: SP header claims more bytes than the PDU contains */
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: unsegmented PDU length mismatch: SP claims %u bytes, PDU is %u bytes",
+                          (unsigned)first_len, (unsigned)tcBuff->tc_pdu_len);
+        *out_destBuff = NULL;
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+}
+
+/**
+ * seq_flags = 0b01 (First segment)
+ *
+ * Start (or restart) a reassembly for the given MAP ID.
+ * No SP is dispatched; *out_destBuff is set to NULL.
+ */
+static CFE_Status_t CI_LAB_HandleFirstSegment(const TC_t *tcBuff, uint8_t map_id,
+                                               CFE_SB_Buffer_t **out_destBuff)
+{
+    *out_destBuff = NULL;
+
+    CI_LAB_ReassemblyState_t *ch = CI_LAB_FindMapChannel(map_id);
+    if (ch == NULL)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: no reassembly channel available for MAP %u", (unsigned)map_id);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    if (ch->in_progress)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_RESTART_EID, CFE_EVS_EventType_INFORMATION,
+                          "CI: first segment received while reassembly active for MAP %u — discarding %u bytes",
+                          (unsigned)map_id, (unsigned)ch->offset);
+        CI_LAB_ResetChannel(ch);
+    }
+
+    if (tcBuff->tc_pdu_len > CI_LAB_MAX_REASSEMBLY_SIZE)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_OVERFLOW_EID, CFE_EVS_EventType_ERROR,
+                          "CI: first segment PDU (%u bytes) exceeds reassembly buffer", (unsigned)tcBuff->tc_pdu_len);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    memcpy(ch->buffer, tcBuff->tc_pdu, tcBuff->tc_pdu_len);
+    ch->offset      = tcBuff->tc_pdu_len;
+    ch->in_progress = true;
+    ch->map_id      = map_id;
+
+    return CFE_SUCCESS;
+}
+
+/**
+ * seq_flags = 0b00 (Continuation segment)
+ *
+ * Append PDU data to an active reassembly.
+ * No SP is dispatched; *out_destBuff is set to NULL.
+ */
+static CFE_Status_t CI_LAB_HandleContinuation(const TC_t *tcBuff, uint8_t map_id,
+                                               CFE_SB_Buffer_t **out_destBuff)
+{
+    *out_destBuff = NULL;
+
+    CI_LAB_ReassemblyState_t *ch = CI_LAB_FindMapChannel(map_id);
+    if (ch == NULL || !ch->in_progress)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_NO_FIRST_EID, CFE_EVS_EventType_ERROR,
+                          "CI: continuation segment for MAP %u received with no active reassembly — discarding",
+                          (unsigned)map_id);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    if (ch->map_id != map_id)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_MAPID_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: MAP ID mismatch — expected %u, got %u — discarding", (unsigned)ch->map_id,
+                          (unsigned)map_id);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    if ((uint32_t)ch->offset + tcBuff->tc_pdu_len > CI_LAB_MAX_REASSEMBLY_SIZE)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_OVERFLOW_EID, CFE_EVS_EventType_ERROR,
+                          "CI: reassembly overflow for MAP %u (%u + %u > %u) — discarding",
+                          (unsigned)map_id, (unsigned)ch->offset, (unsigned)tcBuff->tc_pdu_len,
+                          (unsigned)CI_LAB_MAX_REASSEMBLY_SIZE);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    memcpy(ch->buffer + ch->offset, tcBuff->tc_pdu, tcBuff->tc_pdu_len);
+    ch->offset = (uint16_t)(ch->offset + tcBuff->tc_pdu_len);
+
+    return CFE_SUCCESS;
+}
+
+/**
+ * seq_flags = 0b10 (Last segment)
+ *
+ * Append the final PDU fragment, validate the reassembled SP, allocate an SB
+ * buffer for the complete packet, and return it via out_destBuff.
+ */
+static CFE_Status_t CI_LAB_HandleLastSegment(const TC_t *tcBuff, uint8_t map_id,
+                                              CFE_SB_Buffer_t **out_destBuff)
+{
+    *out_destBuff = NULL;
+
+    CI_LAB_ReassemblyState_t *ch = CI_LAB_FindMapChannel(map_id);
+    if (ch == NULL || !ch->in_progress)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_NO_FIRST_EID, CFE_EVS_EventType_ERROR,
+                          "CI: last segment for MAP %u received with no active reassembly — discarding",
+                          (unsigned)map_id);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    if (ch->map_id != map_id)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_MAPID_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: MAP ID mismatch on last segment — expected %u, got %u — discarding",
+                          (unsigned)ch->map_id, (unsigned)map_id);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    if ((uint32_t)ch->offset + tcBuff->tc_pdu_len > CI_LAB_MAX_REASSEMBLY_SIZE)
+    {
+        CFE_EVS_SendEvent(CI_LAB_SEG_OVERFLOW_EID, CFE_EVS_EventType_ERROR,
+                          "CI: reassembly overflow on last segment for MAP %u — discarding", (unsigned)map_id);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    /* Append final fragment */
+    memcpy(ch->buffer + ch->offset, tcBuff->tc_pdu, tcBuff->tc_pdu_len);
+    ch->offset = (uint16_t)(ch->offset + tcBuff->tc_pdu_len);
+
+    uint16_t total = ch->offset;
+
+    /* Validate the reassembled Space Packet */
+    if (total < 7)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: reassembled SP for MAP %u too short (%u bytes)", (unsigned)map_id, (unsigned)total);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    uint16_t data_len   = ((uint16_t)ch->buffer[4] << 8) | (uint16_t)ch->buffer[5];
+    uint16_t sp_claimed = (uint16_t)(7 + data_len);
+    if (sp_claimed != total)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI: reassembled SP length mismatch: header claims %u bytes, reassembled %u bytes",
+                          (unsigned)sp_claimed, (unsigned)total);
+        CI_LAB_ResetChannel(ch);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    /* Allocate SB buffer and copy the complete SP */
+    CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(total);
+    if (spacePacket == NULL)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI_LAB: reassembled SP buffer alloc failed (%u bytes)", (unsigned)total);
+        CI_LAB_ResetChannel(ch);
+        return CFE_SB_BUF_ALOC_ERR;
+    }
+
+    memcpy(spacePacket, ch->buffer, total);
+    CI_LAB_ResetChannel(ch);
+
+    CFE_EVS_SendEvent(CI_LAB_SEG_COMPLETE_EID, CFE_EVS_EventType_INFORMATION,
+                      "CI: TC segment reassembly complete for MAP %u (%u bytes)", (unsigned)map_id, (unsigned)total);
+
+    *out_destBuff = spacePacket;
+    return CFE_SUCCESS;
+}
+
+/* -------------------------------------------------------------------------
+ * Public API
+ * ------------------------------------------------------------------------- */
+
 CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 {
     CFE_SB_Buffer_t *IngestBuffer;
@@ -32,56 +361,104 @@ CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 
 CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buffer_t **out_destBuff)
 {
-    uint8_t *ptr = srcBuff;
+    uint8_t *ptr          = srcBuff;
     uint16_t spacecraftId = (((uint16_t)ptr[0] << 8) | ptr[1]) & 0x3FF;
     uint16_t frameLength  = (((uint16_t)ptr[2] << 8) | ptr[3]) & 0x3FF;
+
     if (spacecraftId == 3 && frameLength > 0)
     {
-        // probably a TC
+        /* ---- TC Transfer Frame path ---- */
         CFE_ES_WriteToSysLog("CI_LAB: Handling buffer as TC");
 
         *out_destBuff = NULL;
 
-        TC_t tcBuff;
+        TC_t    tcBuff;
+        int32_t status;
         memset(&tcBuff, 0x00, sizeof(tcBuff));
-        int32_t status = Crypto_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
+        status = Crypto_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
         if (CRYPTO_LIB_SUCCESS != status)
         {
             CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                               "CI Crypto: could not process TC errno = %i\n", status);
-
             return CFE_STATUS_VALIDATION_FAILURE;
         }
 
-        CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(tcBuff.tc_pdu_len);
-        if (spacePacket == NULL)
+        /* Determine whether this GVCID uses TC segment headers.
+         * tc_current_managed_parameters_struct is populated by Crypto_TC_ProcessSecurity
+         * for the frame that was just processed (declared extern in crypto.h). */
+        bool has_seg_hdr =
+            (tc_current_managed_parameters_struct.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
+
+        if (!has_seg_hdr)
         {
-            CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
-                              "CI_LAB: crypto buffer allocation failed\n");
-            return CFE_SB_BUF_ALOC_ERR;
+            /* ---- No segment header: single SP in PDU (original behavior + buffer leak fix) ---- */
+
+            CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(tcBuff.tc_pdu_len);
+            if (spacePacket == NULL)
+            {
+                CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
+                                  "CI_LAB: crypto buffer allocation failed\n");
+                /* Release the original network buffer (fixes pre-existing leak) */
+                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+                return CFE_SB_BUF_ALOC_ERR;
+            }
+
+            memcpy(spacePacket, &tcBuff.tc_pdu[0], tcBuff.tc_pdu_len);
+
+            CFE_MSG_Size_t msgSize;
+            CFE_MSG_GetSize(&spacePacket->Msg, &msgSize);
+            if (msgSize > srcSize)
+            {
+                CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                                  "CI: cmd dropped - length mismatch, %lu (hdr) / %lu (packet)\n",
+                                  (unsigned long)msgSize, (unsigned long)srcSize);
+                CFE_SB_ReleaseMessageBuffer(spacePacket);
+                /* Release the original network buffer (fixes pre-existing leak) */
+                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+                return CFE_STATUS_WRONG_MSG_LENGTH;
+            }
+
+            /* Release the original network buffer (fixes pre-existing leak) */
+            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+
+            *out_destBuff = spacePacket;
+            return CFE_SUCCESS;
         }
-
-        memcpy(spacePacket, &tcBuff.tc_pdu[0], tcBuff.tc_pdu_len);
-
-        CFE_MSG_Size_t msgSize;
-        CFE_MSG_GetSize(&spacePacket->Msg, &msgSize);
-        if (msgSize > srcSize)
+        else
         {
-            CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
-                              "CI: cmd dropped - length mismatch, %lu (hdr) / %lu (packet)\n", (unsigned long)msgSize,
-                              (unsigned long)srcSize);
+            /* ---- Segment header present: parse and handle reassembly / blocking ---- */
 
-            CFE_SB_ReleaseMessageBuffer(spacePacket);
-            spacePacket = NULL;
-            return CFE_STATUS_WRONG_MSG_LENGTH;
+            uint8_t seg_hdr   = tcBuff.tc_sec_header.sh;
+            uint8_t seq_flags = (seg_hdr >> 6) & 0x03;
+            uint8_t map_id    = seg_hdr & 0x3F;
+
+            /* The PDU data has been extracted into tcBuff by CryptoLib.
+             * Release the original network buffer now — it is no longer needed. */
+            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+
+            switch (seq_flags)
+            {
+                case 0x03: /* Unsegmented / Blocked */
+                    return CI_LAB_HandleUnsegmented(&tcBuff, map_id, out_destBuff);
+
+                case 0x01: /* First segment */
+                    return CI_LAB_HandleFirstSegment(&tcBuff, map_id, out_destBuff);
+
+                case 0x00: /* Continuation segment */
+                    return CI_LAB_HandleContinuation(&tcBuff, map_id, out_destBuff);
+
+                case 0x02: /* Last segment */
+                    return CI_LAB_HandleLastSegment(&tcBuff, map_id, out_destBuff);
+
+                default:
+                    /* Unreachable: seq_flags is 2 bits */
+                    return CFE_STATUS_VALIDATION_FAILURE;
+            }
         }
-
-        *out_destBuff = spacePacket;
-        return CFE_SUCCESS;
     }
     else
     {
-        // probably a SP
+        /* ---- Space Packet path (passthrough): buffer ownership transferred to SB ---- */
         CFE_ES_WriteToSysLog("CI_LAB: Handling buffer as SP");
 
         CFE_SB_Buffer_t *MsgBufPtr;

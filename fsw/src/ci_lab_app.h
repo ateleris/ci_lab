@@ -47,9 +47,27 @@
  * Macro Definitions
  ************************************************************************/
 
+#define CI_LAB_MAX_REASSEMBLY_SIZE 32768 /* max reassembled SP size (matches CFE_MISSION_SB_MAX_SB_MSG_SIZE) */
+#define CI_LAB_NUM_MAP_CHANNELS    1     /* number of supported MAP channels; only MAP 0 used */
+
+/* Returned by CI_LAB_DecodeInputMessage when SPs were dispatched internally (blocking path) */
+#define CI_LAB_STATUS_DISPATCHED ((CFE_Status_t)1)
+
 /************************************************************************
 ** Type Definitions
 *************************************************************************/
+
+/**
+ * Per-MAP-channel state for TC segment reassembly.
+ * Accumulates PDU fragments across First / Continuation / Last segments.
+ */
+typedef struct
+{
+    uint8_t  buffer[CI_LAB_MAX_REASSEMBLY_SIZE]; /**< Reassembly scratch buffer */
+    uint16_t offset;                             /**< Current write position in buffer */
+    bool     in_progress;                        /**< true while accumulating segments */
+    uint8_t  map_id;                             /**< MAP ID being reassembled */
+} CI_LAB_ReassemblyState_t;
 
 typedef struct
 {
@@ -64,6 +82,8 @@ typedef struct
 
     void * NetBufPtr;
     size_t NetBufSize;
+
+    CI_LAB_ReassemblyState_t Reassembly[CI_LAB_NUM_MAP_CHANNELS]; /**< Per-MAP reassembly state */
 
 } CI_LAB_GlobalData_t;
 

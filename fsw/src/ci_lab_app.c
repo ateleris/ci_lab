@@ -279,20 +279,34 @@ void CI_LAB_ReadUpLink(void)
         {
             CFE_ES_PerfLogEntry(CI_LAB_SOCKET_RCV_PERF_ID);
             CfeStatus = CI_LAB_DecodeInputMessage(CI_LAB_Global.NetBufPtr, OsStatus, &SBBufPtr);
-            if (CfeStatus != CFE_SUCCESS)
+
+            if (CfeStatus != CFE_SUCCESS && CfeStatus != CI_LAB_STATUS_DISPATCHED)
             {
+                /* Decode error — IngestErrors already logged by decode function */
                 CI_LAB_Global.HkTlm.Payload.IngestErrors++;
             }
-            else
+            else if (SBBufPtr != NULL)
             {
+                /* Single SP ready to dispatch (unsegmented or completed reassembly) */
                 CI_LAB_Global.HkTlm.Payload.IngestPackets++;
                 CfeStatus = CFE_SB_TransmitBuffer(SBBufPtr, false);
             }
+            else if (CfeStatus == CI_LAB_STATUS_DISPATCHED)
+            {
+                /* Blocked PDU: individual SPs already dispatched and counted inside decode */
+                CfeStatus = CFE_SUCCESS;
+            }
+            /* else: SBBufPtr == NULL with CFE_SUCCESS means a first/continuation segment
+             * was buffered into the reassembly state. No dispatch needed yet. */
+
             CFE_ES_PerfLogExit(CI_LAB_SOCKET_RCV_PERF_ID);
 
-            if (CfeStatus == CFE_SUCCESS)
+            if (CfeStatus == CFE_SUCCESS || CfeStatus == CI_LAB_STATUS_DISPATCHED)
             {
-                /* Set NULL so a new buffer will be obtained next time around */
+                /* On the TC path, DecodeInputMessage releases the original network buffer
+                 * internally before returning. On the SP path, the buffer is transferred
+                 * to the SB via TransmitBuffer. Either way, clear the pointer so a fresh
+                 * buffer is allocated on the next iteration. */
                 CI_LAB_Global.NetBufPtr  = NULL;
                 CI_LAB_Global.NetBufSize = 0;
             }
