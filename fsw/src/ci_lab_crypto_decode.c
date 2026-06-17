@@ -7,6 +7,7 @@
 #include "ci_lab_decode.h"
 
 #include "crypto.h"
+#include "e2eqss_sdls_cfg.h"
 
 /* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
 extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
@@ -359,6 +360,129 @@ CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
     return CFE_SUCCESS;
 }
 
+/* -------------------------------------------------------------------------
+ * Build a TC_t from a clear (non-SDLS) CCSDS TC transfer frame.
+ *
+ * Frame shape comes from the CryptoLib managed parameters for the GVCID
+ * (segment-header / FECF presence). Layout: [primary hdr 5][segment hdr 1?]
+ * [PDU ...][FECF 2?]. The recovered PDU is copied into tcBuff->tc_pdu so the
+ * normal dispatch/extraction helpers can run unchanged.
+ * ------------------------------------------------------------------------- */
+static CFE_Status_t CI_LAB_BuildClearTc(const uint8_t *frame, size_t frame_len, uint8_t tfvn, uint16_t scid,
+                                        uint8_t vcid, TC_t *tcBuff, bool *has_seg_hdr_out)
+{
+    GvcidManagedParameters_t mp;
+
+    if (Crypto_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, gvcid_managed_parameters_array, &mp) !=
+        CRYPTO_LIB_SUCCESS)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI_LAB: no managed params for clear GVCID scid=%u vcid=%u\n", (unsigned int)scid,
+                          (unsigned int)vcid);
+        return CFE_STATUS_VALIDATION_FAILURE;
+    }
+
+    bool   has_seg  = (mp.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
+    size_t pdu_off  = TC_FRAME_HEADER_SIZE + (has_seg ? 1u : 0u);
+    size_t fecf_len = (mp.has_fecf == TC_HAS_FECF) ? 2u : 0u;
+
+    if (frame_len < pdu_off + fecf_len)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI_LAB: clear TC frame too short (%lu bytes)\n", (unsigned long)frame_len);
+        return CFE_STATUS_WRONG_MSG_LENGTH;
+    }
+
+    size_t pdu_len = frame_len - pdu_off - fecf_len;
+    if (pdu_len > TC_FRAME_DATA_SIZE)
+    {
+        CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "CI_LAB: clear TC PDU too large (%lu bytes)\n", (unsigned long)pdu_len);
+        return CFE_STATUS_WRONG_MSG_LENGTH;
+    }
+
+    if (has_seg)
+    {
+        tcBuff->tc_sec_header.sh = frame[TC_FRAME_HEADER_SIZE];
+    }
+
+    memcpy(tcBuff->tc_pdu, &frame[pdu_off], pdu_len);
+    tcBuff->tc_pdu_len = (uint16_t)pdu_len;
+
+    *has_seg_hdr_out = has_seg;
+    return CFE_SUCCESS;
+}
+
+/* -------------------------------------------------------------------------
+ * Dispatch a populated TC_t (from CryptoLib or the clear path) to the Software
+ * Bus: single space packet, blocked packets, or segmented reassembly. Owns the
+ * release of the original network buffer (srcBuff).
+ * ------------------------------------------------------------------------- */
+static CFE_Status_t CI_LAB_DispatchTc(const TC_t *tcBuff, bool has_seg_hdr, void *srcBuff, size_t srcSize,
+                                      CFE_SB_Buffer_t **out_destBuff)
+{
+    if (!has_seg_hdr)
+    {
+        /* ---- No segment header: single SP in PDU ---- */
+        CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(tcBuff->tc_pdu_len);
+        if (spacePacket == NULL)
+        {
+            CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "CI_LAB: crypto buffer allocation failed\n");
+            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+            return CFE_SB_BUF_ALOC_ERR;
+        }
+
+        memcpy(spacePacket, &tcBuff->tc_pdu[0], tcBuff->tc_pdu_len);
+
+        CFE_MSG_Size_t msgSize;
+        CFE_MSG_GetSize(&spacePacket->Msg, &msgSize);
+        if (msgSize > srcSize)
+        {
+            CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "CI: cmd dropped - length mismatch, %lu (hdr) / %lu (packet)\n",
+                              (unsigned long)msgSize, (unsigned long)srcSize);
+            CFE_SB_ReleaseMessageBuffer(spacePacket);
+            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+            return CFE_STATUS_WRONG_MSG_LENGTH;
+        }
+
+        CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+
+        *out_destBuff = spacePacket;
+        return CFE_SUCCESS;
+    }
+    else
+    {
+        /* ---- Segment header present: parse and handle reassembly / blocking ---- */
+        uint8_t seg_hdr   = tcBuff->tc_sec_header.sh;
+        uint8_t seq_flags = (seg_hdr >> 6) & 0x03;
+        uint8_t map_id    = seg_hdr & 0x3F;
+
+        /* The PDU data is already extracted into tcBuff; release the network buffer. */
+        CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+
+        switch (seq_flags)
+        {
+            case 0x03: /* Unsegmented / Blocked */
+                return CI_LAB_HandleUnsegmented(tcBuff, map_id, out_destBuff);
+
+            case 0x01: /* First segment */
+                return CI_LAB_HandleFirstSegment(tcBuff, map_id, out_destBuff);
+
+            case 0x00: /* Continuation segment */
+                return CI_LAB_HandleContinuation(tcBuff, map_id, out_destBuff);
+
+            case 0x02: /* Last segment */
+                return CI_LAB_HandleLastSegment(tcBuff, map_id, out_destBuff);
+
+            default:
+                /* Unreachable: seq_flags is 2 bits */
+                return CFE_STATUS_VALIDATION_FAILURE;
+        }
+    }
+}
+
 CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buffer_t **out_destBuff)
 {
     uint8_t *ptr          = srcBuff;
@@ -372,89 +496,43 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
 
         *out_destBuff = NULL;
 
-        TC_t    tcBuff;
-        int32_t status;
+        /* GVCID determines whether this channel is SDLS-protected (route through
+         * CryptoLib) or clear (parse the plain CCSDS frame directly). VCID is in the
+         * TC primary header: byte 2, bits 7-2; TFVN is the top 2 bits of byte 0. */
+        uint8_t tfvn = (ptr[0] >> 6) & 0x03;
+        uint8_t vcid = (ptr[2] >> 2) & 0x3F;
+
+        TC_t tcBuff;
+        bool has_seg_hdr;
         memset(&tcBuff, 0x00, sizeof(tcBuff));
-        status = Crypto_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
-        if (CRYPTO_LIB_SUCCESS != status)
+
+        if (E2EQSS_Gvcid_Has_Sdls(tfvn, spacecraftId, vcid))
         {
-            CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
-                              "CI Crypto: could not process TC errno = %i\n", status);
-            return CFE_STATUS_VALIDATION_FAILURE;
-        }
-
-        /* Determine whether this GVCID uses TC segment headers.
-         * tc_current_managed_parameters_struct is populated by Crypto_TC_ProcessSecurity
-         * for the frame that was just processed (declared extern in crypto.h). */
-        bool has_seg_hdr =
-            (tc_current_managed_parameters_struct.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
-
-        if (!has_seg_hdr)
-        {
-            /* ---- No segment header: single SP in PDU (original behavior + buffer leak fix) ---- */
-
-            CFE_SB_Buffer_t *spacePacket = CFE_SB_AllocateMessageBuffer(tcBuff.tc_pdu_len);
-            if (spacePacket == NULL)
-            {
-                CFE_EVS_SendEvent(CI_LAB_INGEST_ALLOC_ERR_EID, CFE_EVS_EventType_ERROR,
-                                  "CI_LAB: crypto buffer allocation failed\n");
-                /* Release the original network buffer (fixes pre-existing leak) */
-                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
-                return CFE_SB_BUF_ALOC_ERR;
-            }
-
-            memcpy(spacePacket, &tcBuff.tc_pdu[0], tcBuff.tc_pdu_len);
-
-            CFE_MSG_Size_t msgSize;
-            CFE_MSG_GetSize(&spacePacket->Msg, &msgSize);
-            if (msgSize > srcSize)
+            /* ---- SDLS-protected GVCID: process through CryptoLib ---- */
+            int32_t status = Crypto_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
+            if (CRYPTO_LIB_SUCCESS != status)
             {
                 CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
-                                  "CI: cmd dropped - length mismatch, %lu (hdr) / %lu (packet)\n",
-                                  (unsigned long)msgSize, (unsigned long)srcSize);
-                CFE_SB_ReleaseMessageBuffer(spacePacket);
-                /* Release the original network buffer (fixes pre-existing leak) */
-                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
-                return CFE_STATUS_WRONG_MSG_LENGTH;
+                                  "CI Crypto: could not process TC errno = %i\n", status);
+                return CFE_STATUS_VALIDATION_FAILURE;
             }
 
-            /* Release the original network buffer (fixes pre-existing leak) */
-            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
-
-            *out_destBuff = spacePacket;
-            return CFE_SUCCESS;
+            /* tc_current_managed_parameters_struct is populated by Crypto_TC_ProcessSecurity. */
+            has_seg_hdr = (tc_current_managed_parameters_struct.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
         }
         else
         {
-            /* ---- Segment header present: parse and handle reassembly / blocking ---- */
-
-            uint8_t seg_hdr   = tcBuff.tc_sec_header.sh;
-            uint8_t seq_flags = (seg_hdr >> 6) & 0x03;
-            uint8_t map_id    = seg_hdr & 0x3F;
-
-            /* The PDU data has been extracted into tcBuff by CryptoLib.
-             * Release the original network buffer now — it is no longer needed. */
-            CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
-
-            switch (seq_flags)
+            /* ---- Clear (non-SDLS) GVCID: parse the plain CCSDS frame directly ---- */
+            CFE_Status_t build_status =
+                CI_LAB_BuildClearTc(ptr, srcSize, tfvn, spacecraftId, vcid, &tcBuff, &has_seg_hdr);
+            if (build_status != CFE_SUCCESS)
             {
-                case 0x03: /* Unsegmented / Blocked */
-                    return CI_LAB_HandleUnsegmented(&tcBuff, map_id, out_destBuff);
-
-                case 0x01: /* First segment */
-                    return CI_LAB_HandleFirstSegment(&tcBuff, map_id, out_destBuff);
-
-                case 0x00: /* Continuation segment */
-                    return CI_LAB_HandleContinuation(&tcBuff, map_id, out_destBuff);
-
-                case 0x02: /* Last segment */
-                    return CI_LAB_HandleLastSegment(&tcBuff, map_id, out_destBuff);
-
-                default:
-                    /* Unreachable: seq_flags is 2 bits */
-                    return CFE_STATUS_VALIDATION_FAILURE;
+                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+                return build_status;
             }
         }
+
+        return CI_LAB_DispatchTc(&tcBuff, has_seg_hdr, srcBuff, srcSize, out_destBuff);
     }
     else
     {

@@ -196,22 +196,12 @@ static void CI_LAB_CryptoLib_Init(void)
         TC_IGNORE_SA_STATE_FALSE, TC_IGNORE_ANTI_REPLAY_FALSE, TC_UNIQUE_SA_PER_MAP_ID_FALSE,
         TC_CHECK_FECF_TRUE, 0x3F, SA_INCREMENT_NONTRANSMITTED_IV_TRUE);
 
-    GvcidManagedParameters_t params = { 0,    0x0003,    42, TC_NO_FECF, AOS_FHEC_NA, AOS_IZ_NA, 0, TC_NO_SEGMENT_HDRS,
-                                       1024, TC_OCF_NA, 1 };
-    Crypto_Config_Add_Gvcid_Managed_Parameters(params);
-    params.vcid = 44;
-    Crypto_Config_Add_Gvcid_Managed_Parameters(params);
-
-    GvcidManagedParameters_t tm_params = { 0,    0x0003,    6, TM_NO_FECF, AOS_FHEC_NA, AOS_IZ_NA, 0, TC_NO_SEGMENT_HDRS,
-                                          1786, TM_NO_OCF, 1 };
-    Crypto_Config_Add_Gvcid_Managed_Parameters(tm_params);
-
     // with segment headers
     GvcidManagedParameters_t seg_params = {
         0, // tfvn
         3, // scid
-        50, // vcid
-        TC_NO_FECF,
+        0, // vcid
+        TC_HAS_FECF,
         AOS_FHEC_NA,
         AOS_IZ_NA,
         0, // aos_iz_len
@@ -224,27 +214,20 @@ static void CI_LAB_CryptoLib_Init(void)
     GvcidManagedParameters_t seg_tm_params = {
         0, // tfvn
         3, // scid
-        5, // vcid
-        TM_NO_FECF,
+        0, // vcid
+        TM_HAS_FECF,
         AOS_FHEC_NA,
         AOS_IZ_NA,
         0, // aos_iz_len
-        TC_HAS_SEGMENT_HDRS,
+        TM_SEGMENT_HDRS_NA,
         1786, // max frame size
-        TM_NO_OCF, 
+        TM_HAS_OCF,
         1 // set flag
         };
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tm_params);
 
     int status = Crypto_Init();
     assert(CRYPTO_LIB_SUCCESS == status);
-
-    SecurityAssociation_t* sa;
-    status = sa_if->sa_get_from_spi(42, &sa);
-    assert(CRYPTO_LIB_SUCCESS == status);
-    sa->sa_state = SA_OPERATIONAL;
-
-    memset(sa->iv, 0x00, sa->iv_len);
 
     CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Crypto Lib Initialized.");
 }
