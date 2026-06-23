@@ -197,7 +197,7 @@ static void CI_LAB_CryptoLib_Init(void)
         TC_CHECK_FECF_TRUE, 0x3F, SA_INCREMENT_NONTRANSMITTED_IV_TRUE);
 
     // with segment headers
-    GvcidManagedParameters_t seg_params = {
+    GvcidManagedParameters_t seg_tc_params = {
         0, // tfvn
         3, // scid
         0, // vcid
@@ -210,7 +210,10 @@ static void CI_LAB_CryptoLib_Init(void)
         TC_OCF_NA, 
         1 // set flag
         };
-    Crypto_Config_Add_Gvcid_Managed_Parameters(seg_params);
+    Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tc_params);
+    seg_tc_params.vcid = 2;
+    Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tc_params);
+
     GvcidManagedParameters_t seg_tm_params = {
         0, // tfvn
         3, // scid
@@ -224,6 +227,8 @@ static void CI_LAB_CryptoLib_Init(void)
         TM_HAS_OCF,
         1 // set flag
         };
+    Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tm_params);
+    seg_tm_params.vcid = 2;
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tm_params);
 
     int status = Crypto_Init();

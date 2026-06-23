@@ -373,7 +373,7 @@ static CFE_Status_t CI_LAB_BuildClearTc(const uint8_t *frame, size_t frame_len, 
 {
     GvcidManagedParameters_t mp;
 
-    if (Crypto_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, gvcid_managed_parameters_array, &mp) !=
+    if (Crypto_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, TYPE_TC, gvcid_managed_parameters_array, &mp) !=
         CRYPTO_LIB_SUCCESS)
     {
         CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
@@ -519,6 +519,40 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
 
             /* tc_current_managed_parameters_struct is populated by Crypto_TC_ProcessSecurity. */
             has_seg_hdr = (tc_current_managed_parameters_struct.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
+
+            if (tcBuff.tc_pdu[0] == 0x19 && tcBuff.tc_pdu[1] == 0x80)
+            {
+                uint8_t  ep_reply[TC_MAX_FRAME_SIZE];
+                uint16_t ep_reply_len = 0;
+
+                if (Crypto_Get_Sdls_Ep_Reply(ep_reply, &ep_reply_len) == CRYPTO_LIB_SUCCESS && ep_reply_len >= 7)
+                {
+                    /* CryptoLib writes (total_len - 1) into the SP packet-data-length field;
+                     * rewrite it to the CCSDS value (data_len - 1 = total_len - 7) so cFE SB
+                     * and the ground station size the reply packet correctly. */
+                    uint16_t ccsds_len = ep_reply_len - 7;
+                    ep_reply[4]        = (ccsds_len >> 8) & 0xFF;
+                    ep_reply[5]        = ccsds_len & 0xFF;
+
+                    /* Re-stream on a DEDICATED EP-reply APID. CryptoLib emits the reply with
+                     * CRYPTOLIB_APPID (128) -> MID 0x0880, which collides with TO_LAB_HK_TLM_MID
+                     * (TLM base 0x0800 | topic 0x80) and would flood the downlink. Rewrite the
+                     * Packet ID to APID 0x07E (MID 0x087E); keep version=0, type=0 (TM), shdr=1. */
+                    ep_reply[0] = 0x08;  /* 000 0 1 000 -> version 0, TM, sec-hdr flag, APID[10:8]=0 */
+                    ep_reply[1] = 0x7E;  /* APID[7:0] = 0x7E -> APID 0x07E */
+
+                    CFE_SB_Buffer_t *replyBuf = CFE_SB_AllocateMessageBuffer(ep_reply_len);
+                    if (replyBuf != NULL)
+                    {
+                        memcpy(replyBuf, ep_reply, ep_reply_len);
+                        CFE_SB_TransmitBuffer(replyBuf, false);
+                    }
+                }
+
+                CFE_SB_ReleaseMessageBuffer((CFE_SB_Buffer_t *)srcBuff);
+                *out_destBuff = NULL;
+                return CFE_SUCCESS;
+            }
         }
         else
         {
