@@ -16,14 +16,14 @@
  * limitations under the License.
  ************************************************************************/
 
- /**
-  * \file
-  *   This file contains the source code for the Command Ingest task.
-  */
+/**
+ * \file
+ *   This file contains the source code for the Command Ingest task.
+ */
 
-  /*
-  **   Include Files:
-  */
+/*
+**   Include Files:
+*/
 
 #include "ci_lab_app.h"
 #include "ci_lab_perfids.h"
@@ -32,13 +32,14 @@
 #include "ci_lab_decode.h"
 
 #include <assert.h>
+#include <string.h>
 #include "crypto.h"
 #include "crypto_error.h"
 #include "sa_interface.h"
 
-  /*
-  ** CI Global Data
-  */
+/*
+** CI Global Data
+*/
 CI_LAB_GlobalData_t CI_LAB_Global;
 
 /** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -56,7 +57,7 @@ void CI_LAB_AppMain(void)
 {
     CFE_Status_t     status;
     uint32           RunStatus = CFE_ES_RunStatus_APP_RUN;
-    CFE_SB_Buffer_t* SBBufPtr;
+    CFE_SB_Buffer_t *SBBufPtr;
 
     CFE_ES_PerfLogEntry(CI_LAB_MAIN_TASK_PERF_ID);
 
@@ -123,34 +124,34 @@ static void CI_LAB_Init(void)
         if (status != CFE_SUCCESS)
         {
             CFE_EVS_SendEvent(CI_LAB_SB_SUBSCRIBE_CMD_ERR_EID, CFE_EVS_EventType_ERROR,
-                "Error subscribing to SB Commands, RC = 0x%08X", (unsigned int)status);
+                              "Error subscribing to SB Commands, RC = 0x%08X", (unsigned int)status);
         }
 
         status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(CI_LAB_SEND_HK_MID), CI_LAB_Global.CommandPipe);
         if (status != CFE_SUCCESS)
         {
             CFE_EVS_SendEvent(CI_LAB_SB_SUBSCRIBE_HK_ERR_EID, CFE_EVS_EventType_ERROR,
-                "Error subscribing to SB HK Request, RC = 0x%08X", (unsigned int)status);
+                              "Error subscribing to SB HK Request, RC = 0x%08X", (unsigned int)status);
         }
 
         status = CFE_SB_Subscribe(CFE_SB_ValueToMsgId(CI_LAB_READ_UPLINK_MID), CI_LAB_Global.CommandPipe);
         if (status != CFE_SUCCESS)
         {
             CFE_EVS_SendEvent(CI_LAB_SB_SUBSCRIBE_UL_ERR_EID, CFE_EVS_EventType_ERROR,
-                "Error subscribing to SB Read Uplink Request, RC = 0x%08X", (unsigned int)status);
+                              "Error subscribing to SB Read Uplink Request, RC = 0x%08X", (unsigned int)status);
         }
     }
     else
     {
         CFE_EVS_SendEvent(CI_LAB_CR_PIPE_ERR_EID, CFE_EVS_EventType_ERROR,
-            "Error creating SB Command Pipe, RC = 0x%08X", (unsigned int)status);
+                          "Error creating SB Command Pipe, RC = 0x%08X", (unsigned int)status);
     }
 
     status = OS_SocketOpen(&CI_LAB_Global.SocketID, OS_SocketDomain_INET, OS_SocketType_DATAGRAM);
     if (status != OS_SUCCESS)
     {
         CFE_EVS_SendEvent(CI_LAB_SOCKETCREATE_ERR_EID, CFE_EVS_EventType_ERROR, "CI: create socket failed = %d",
-            (int)status);
+                          (int)status);
     }
     else
     {
@@ -163,7 +164,7 @@ static void CI_LAB_Init(void)
         if (status != OS_SUCCESS)
         {
             CFE_EVS_SendEvent(CI_LAB_SOCKETBIND_ERR_EID, CFE_EVS_EventType_ERROR, "CI: bind socket failed = %d",
-                (int)status);
+                              (int)status);
         }
         else
         {
@@ -180,21 +181,76 @@ static void CI_LAB_Init(void)
     OS_TaskInstallDeleteHandler(&CI_LAB_delete_callback);
 
     CFE_MSG_Init(CFE_MSG_PTR(CI_LAB_Global.HkTlm.TelemetryHeader), CFE_SB_ValueToMsgId(CI_LAB_HK_TLM_MID),
-        sizeof(CI_LAB_Global.HkTlm));
+                 sizeof(CI_LAB_Global.HkTlm));
 
     CFE_Config_GetVersionString(VersionString, CI_LAB_CFG_MAX_VERSION_STR_LEN, "CI Lab App", CI_LAB_VERSION,
-        CI_LAB_BUILD_CODENAME, CI_LAB_LAST_OFFICIAL);
+                                CI_LAB_BUILD_CODENAME, CI_LAB_LAST_OFFICIAL);
 
     CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Initialized.%s", VersionString);
+}
+
+static void CI_LAB_Crypto_ClearSAs(void)
+{
+    SecurityAssociation_t *sa = NULL;
+
+    for (uint16 spi = 0; spi < NUM_SA; spi++)
+    {
+        sa_if->sa_get_from_spi(spi, &sa);
+        if (sa != NULL)
+        {
+            memset(sa, 0, sizeof(*sa));
+            sa->spi      = spi;
+            sa->sa_state = SA_NONE;
+        }
+    }
+}
+
+static void CI_LAB_Crypto_PopulateSAs(void)
+{
+    SecurityAssociation_t *sa = NULL;
+
+    // SA 0 - TC CLEAR MODE (Operational)
+    sa_if->sa_get_from_spi(0, &sa);
+    sa->spi             = 0;
+    sa->sa_state        = SA_OPERATIONAL;
+    sa->est             = 0;
+    sa->ast             = 0;
+    sa->shivf_len       = 12;
+    sa->iv_len          = 12;
+    sa->shsnf_len       = 0;
+    sa->arsnw           = 5;
+    sa->arsnw_len       = 1;
+    sa->arsn_len        = 0;
+    sa->gvcid_blk.tfvn  = 0;
+    sa->gvcid_blk.scid  = SCID & 0x3FF;
+    sa->gvcid_blk.vcid  = 0;
+    sa->gvcid_blk.mapid = TYPE_TC;
+
+    // SA 1 - TM CLEAR MODE (Operational)
+    sa_if->sa_get_from_spi(1, &sa);
+    sa->spi             = 1;
+    sa->sa_state        = SA_OPERATIONAL;
+    sa->est             = 0;
+    sa->ast             = 0;
+    sa->shivf_len       = 12;
+    sa->iv_len          = 12;
+    sa->shsnf_len       = 0;
+    sa->arsnw           = 5;
+    sa->arsnw_len       = 1;
+    sa->arsn_len        = 0;
+    sa->gvcid_blk.tfvn  = 0;
+    sa->gvcid_blk.scid  = SCID & 0x3FF;
+    sa->gvcid_blk.vcid  = 0;
+    sa->gvcid_blk.mapid = TYPE_TM;
 }
 
 static void CI_LAB_CryptoLib_Init(void)
 {
     // Setup & Initialize CryptoLib
     Crypto_Config_CryptoLib(KEY_TYPE_INTERNAL, MC_TYPE_INTERNAL, SA_TYPE_INMEMORY, CRYPTOGRAPHY_TYPE_LIBGCRYPT,
-        IV_INTERNAL, CRYPTO_TC_CREATE_FECF_TRUE, TC_PROCESS_SDLS_PDUS_TRUE, TC_HAS_PUS_HDR,
-        TC_IGNORE_SA_STATE_FALSE, TC_IGNORE_ANTI_REPLAY_FALSE, TC_UNIQUE_SA_PER_MAP_ID_FALSE,
-        TC_CHECK_FECF_TRUE, 0x3F, SA_INCREMENT_NONTRANSMITTED_IV_TRUE);
+                            IV_INTERNAL, CRYPTO_TC_CREATE_FECF_TRUE, TC_PROCESS_SDLS_PDUS_TRUE, TC_NO_PUS_HDR,
+                            TC_IGNORE_SA_STATE_FALSE, TC_IGNORE_ANTI_REPLAY_FALSE, TC_UNIQUE_SA_PER_MAP_ID_FALSE,
+                            TC_CHECK_FECF_TRUE, 0x3F, SA_INCREMENT_NONTRANSMITTED_IV_TRUE);
 
     // with segment headers
     GvcidManagedParameters_t seg_tc_params = {
@@ -207,9 +263,9 @@ static void CI_LAB_CryptoLib_Init(void)
         0, // aos_iz_len
         TC_HAS_SEGMENT_HDRS,
         1024, // max frame size
-        TC_OCF_NA, 
+        TC_OCF_NA,
         1 // set flag
-        };
+    };
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tc_params);
     seg_tc_params.vcid = 2;
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tc_params);
@@ -226,13 +282,17 @@ static void CI_LAB_CryptoLib_Init(void)
         1786, // max frame size
         TM_HAS_OCF,
         1 // set flag
-        };
+    };
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tm_params);
     seg_tm_params.vcid = 2;
     Crypto_Config_Add_Gvcid_Managed_Parameters(seg_tm_params);
 
     int status = Crypto_Init();
     assert(CRYPTO_LIB_SUCCESS == status);
+
+    // Override CryptoLib's default SAs with the e2eqss configuration
+    CI_LAB_Crypto_ClearSAs();
+    CI_LAB_Crypto_PopulateSAs();
 
     CFE_EVS_SendEvent(CI_LAB_INIT_INF_EID, CFE_EVS_EventType_INFORMATION, "CI Lab Crypto Lib Initialized.");
 }
@@ -258,12 +318,12 @@ void CI_LAB_TaskInit(void)
 void CI_LAB_ResetCounters_Internal(void)
 {
     /* Status of commands processed by CI task */
-    CI_LAB_Global.HkTlm.Payload.CommandCounter = 0;
+    CI_LAB_Global.HkTlm.Payload.CommandCounter      = 0;
     CI_LAB_Global.HkTlm.Payload.CommandErrorCounter = 0;
 
     /* Status of packets ingested by CI task */
     CI_LAB_Global.HkTlm.Payload.IngestPackets = 0;
-    CI_LAB_Global.HkTlm.Payload.IngestErrors = 0;
+    CI_LAB_Global.HkTlm.Payload.IngestErrors  = 0;
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/
@@ -277,7 +337,7 @@ void CI_LAB_ReadUpLink(void)
     int32 OsStatus;
 
     CFE_Status_t     CfeStatus;
-    CFE_SB_Buffer_t* SBBufPtr;
+    CFE_SB_Buffer_t *SBBufPtr;
 
     for (i = 0; i <= CI_LAB_PLATFORM_MAX_INGEST_PKTS; i++)
     {
@@ -292,7 +352,7 @@ void CI_LAB_ReadUpLink(void)
         }
 
         OsStatus = OS_SocketRecvFrom(CI_LAB_Global.SocketID, CI_LAB_Global.NetBufPtr, CI_LAB_Global.NetBufSize,
-            &CI_LAB_Global.SocketAddress, CI_LAB_PLATFORM_UPLINK_RECEIVE_TIMEOUT);
+                                     &CI_LAB_Global.SocketAddress, CI_LAB_PLATFORM_UPLINK_RECEIVE_TIMEOUT);
         if (OsStatus > 0)
         {
             CFE_ES_PerfLogEntry(CI_LAB_SOCKET_RCV_PERF_ID);
@@ -325,13 +385,13 @@ void CI_LAB_ReadUpLink(void)
                  * internally before returning. On the SP path, the buffer is transferred
                  * to the SB via TransmitBuffer. Either way, clear the pointer so a fresh
                  * buffer is allocated on the next iteration. */
-                CI_LAB_Global.NetBufPtr = NULL;
+                CI_LAB_Global.NetBufPtr  = NULL;
                 CI_LAB_Global.NetBufSize = 0;
             }
             else
             {
                 CFE_EVS_SendEvent(CI_LAB_INGEST_SEND_ERR_EID, CFE_EVS_EventType_ERROR,
-                    "CI_LAB: Ingest failed, status=%d\n", (int)CfeStatus);
+                                  "CI_LAB: Ingest failed, status=%d\n", (int)CfeStatus);
             }
         }
         else
