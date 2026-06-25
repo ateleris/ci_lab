@@ -224,24 +224,7 @@ static void CI_LAB_Crypto_PopulateSAs(void)
     sa->gvcid_blk.tfvn  = 0;
     sa->gvcid_blk.scid  = SCID & 0x3FF;
     sa->gvcid_blk.vcid  = 0;
-    sa->gvcid_blk.mapid = TYPE_TC;
-
-    // SA 1 - TM CLEAR MODE (Operational)
-    sa_if->sa_get_from_spi(1, &sa);
-    sa->spi             = 1;
-    sa->sa_state        = SA_OPERATIONAL;
-    sa->est             = 0;
-    sa->ast             = 0;
-    sa->shivf_len       = 12;
-    sa->iv_len          = 12;
-    sa->shsnf_len       = 0;
-    sa->arsnw           = 5;
-    sa->arsnw_len       = 1;
-    sa->arsn_len        = 0;
-    sa->gvcid_blk.tfvn  = 0;
-    sa->gvcid_blk.scid  = SCID & 0x3FF;
-    sa->gvcid_blk.vcid  = 0;
-    sa->gvcid_blk.mapid = TYPE_TM;
+    sa->gvcid_blk.mapid = 0;
 }
 
 static void CI_LAB_CryptoLib_Init(void)
