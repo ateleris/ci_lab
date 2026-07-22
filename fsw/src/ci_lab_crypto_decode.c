@@ -6,11 +6,9 @@
 #include "ci_lab_msgids.h"
 #include "ci_lab_decode.h"
 
-#include "crypto.h"
+// TODO fix calls
+#include "apqs_sdls_types.h"
 #include "e2eqss_sdls_cfg.h"
-
-/* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
-extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
 
 /* -------------------------------------------------------------------------
  * MAP channel helpers
@@ -359,6 +357,10 @@ CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 
     return CFE_SUCCESS;
 }
+
+/* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
+// TODO? why forward declared?
+extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
 
 /* -------------------------------------------------------------------------
  * Build a TC_t from a clear (non-SDLS) CCSDS TC transfer frame.
