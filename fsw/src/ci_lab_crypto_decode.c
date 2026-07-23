@@ -6,9 +6,7 @@
 #include "ci_lab_msgids.h"
 #include "ci_lab_decode.h"
 
-// TODO fix calls
-#include "apqs_sdls_types.h"
-#include "e2eqss_sdls_cfg.h"
+#include "apqs_api.h"
 
 /* -------------------------------------------------------------------------
  * MAP channel helpers
@@ -375,8 +373,8 @@ static CFE_Status_t CI_LAB_BuildClearTc(const uint8_t *frame, size_t frame_len, 
 {
     GvcidManagedParameters_t mp;
 
-    if (Crypto_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, TYPE_TC, gvcid_managed_parameters_array, &mp) !=
-        CRYPTO_LIB_SUCCESS)
+    if (apqs_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, TYPE_TC, 
+        apqs_get_gvcid_managed_parameters_array(), &mp) != CRYPTO_LIB_SUCCESS)
     {
         CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                           "CI_LAB: no managed params for clear GVCID scid=%u vcid=%u\n", (unsigned int)scid,
@@ -490,7 +488,7 @@ static void CI_LAB_ReStreamEpReply(void)
     uint8_t  ep_reply[TC_MAX_FRAME_SIZE];
     uint16_t ep_reply_len = 0;
 
-    if (Crypto_Get_Sdls_Ep_Reply(ep_reply, &ep_reply_len) == CRYPTO_LIB_SUCCESS && ep_reply_len >= 7)
+    if (apqs_Get_Sdls_Ep_Reply(ep_reply, &ep_reply_len) == CRYPTO_LIB_SUCCESS && ep_reply_len >= 7)
     {
         uint16_t ccsds_len = ep_reply_len - 7;
         ep_reply[4]        = (ccsds_len >> 8) & 0xFF;
@@ -539,7 +537,7 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
         if (E2EQSS_Gvcid_Has_Sdls(tfvn, spacecraftId, vcid))
         {
             /* ---- SDLS-protected GVCID: process through CryptoLib ---- */
-            int32_t status = Crypto_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
+            int32_t status = apqs_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
             if (CRYPTO_LIB_SUCCESS != status)
             {
                 CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
@@ -573,7 +571,7 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
             // Detect SDLS EP by Cryptolib AppId
             if ((((tcBuff.tc_pdu[0] & 0x07) << 8) | tcBuff.tc_pdu[1]) == CRYPTOLIB_APPID)
             {
-                int32_t ep_status = Crypto_Process_Clear_TC_EP(ptr, (int)srcSize);
+                int32_t ep_status = apqs_Process_Clear_TC_EP(ptr, (int)srcSize);
                 if (ep_status != CRYPTO_LIB_SUCCESS)
                 {
                     CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
