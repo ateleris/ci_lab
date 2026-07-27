@@ -358,7 +358,7 @@ CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
 
 /* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
 // TODO? why forward declared?
-extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
+extern TCGvcidManagedParameters_t tc_current_managed_parameters_struct;
 
 /* -------------------------------------------------------------------------
  * Build a TC_t from a clear (non-SDLS) CCSDS TC transfer frame.
@@ -371,10 +371,10 @@ extern GvcidManagedParameters_t tc_current_managed_parameters_struct;
 static CFE_Status_t CI_LAB_BuildClearTc(const uint8_t *frame, size_t frame_len, uint8_t tfvn, uint16_t scid,
                                         uint8_t vcid, TC_t *tcBuff, bool *has_seg_hdr_out)
 {
-    GvcidManagedParameters_t mp;
+    TCGvcidManagedParameters_t mp;
 
-    if (apqs_Get_Managed_Parameters_For_Gvcid(tfvn, scid, vcid, TYPE_TC, 
-        apqs_get_gvcid_managed_parameters_array(), &mp) != CRYPTO_LIB_SUCCESS)
+    if (apqs_Get_TC_Managed_Parameters_For_Gvcid(tfvn, scid, vcid,
+        apqs_get_tc_gvcid_managed_parameters_array(), &mp) != CRYPTO_LIB_SUCCESS)
     {
         CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                           "CI_LAB: no managed params for clear GVCID scid=%u vcid=%u\n", (unsigned int)scid,
