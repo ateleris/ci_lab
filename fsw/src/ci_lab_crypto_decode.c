@@ -534,7 +534,7 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
         bool has_seg_hdr;
         memset(&tcBuff, 0x00, sizeof(tcBuff));
 
-        if (E2EQSS_Gvcid_Has_Sdls(tfvn, spacecraftId, vcid))
+        if (TC_Gvcid_Has_Sdls(tfvn, spacecraftId, vcid))
         {
             /* ---- SDLS-protected GVCID: process through CryptoLib ---- */
             int32_t status = apqs_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
