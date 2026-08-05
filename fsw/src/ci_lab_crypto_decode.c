@@ -6,7 +6,7 @@
 #include "ci_lab_msgids.h"
 #include "ci_lab_decode.h"
 
-#include "apqs_api.h"
+#include "apqs_cfs_api.h"
 
 /* -------------------------------------------------------------------------
  * MAP channel helpers
@@ -356,10 +356,6 @@ CFE_Status_t CI_LAB_GetInputBuffer(void **BufferOut, size_t *SizeOut)
     return CFE_SUCCESS;
 }
 
-/* CryptoLib extern: populated by Crypto_TC_ProcessSecurity for the frame just processed */
-// TODO? why forward declared?
-extern TCGvcidManagedParameters_t tc_current_managed_parameters_struct;
-
 /* -------------------------------------------------------------------------
  * Build a TC_t from a clear (non-SDLS) CCSDS TC transfer frame.
  *
@@ -373,8 +369,8 @@ static CFE_Status_t CI_LAB_BuildClearTc(const uint8_t *frame, size_t frame_len, 
 {
     TCGvcidManagedParameters_t mp;
 
-    if (apqs_Get_TC_Managed_Parameters_For_Gvcid(tfvn, scid, vcid,
-        apqs_get_tc_gvcid_managed_parameters_array(), &mp) != CRYPTO_LIB_SUCCESS)
+    if (APQS_CFS_GetTcManagedParametersForGvcid(tfvn, scid, vcid,
+        APQS_CFS_GetTcManagedParametersArray(), &mp) != APQS_CFS_SUCCESS)
     {
         CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                           "CI_LAB: no managed params for clear GVCID scid=%u vcid=%u\n", (unsigned int)scid,
@@ -488,7 +484,7 @@ static void CI_LAB_ReStreamEpReply(void)
     uint8_t  ep_reply[TC_MAX_FRAME_SIZE];
     uint16_t ep_reply_len = 0;
 
-    if (apqs_Get_Sdls_Ep_Reply(ep_reply, &ep_reply_len) == CRYPTO_LIB_SUCCESS && ep_reply_len >= 7)
+    if (APQS_CFS_GetSdlsEpReply(ep_reply, &ep_reply_len) == APQS_CFS_SUCCESS && ep_reply_len >= 7)
     {
         uint16_t ccsds_len = ep_reply_len - 7;
         ep_reply[4]        = (ccsds_len >> 8) & 0xFF;
@@ -534,19 +530,19 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
         bool has_seg_hdr;
         memset(&tcBuff, 0x00, sizeof(tcBuff));
 
-        if (TC_Gvcid_Has_Sdls(tfvn, spacecraftId, vcid))
+        if (APQS_CFS_TC_GvcidHasSdls(tfvn, spacecraftId, vcid))
         {
             /* ---- SDLS-protected GVCID: process through CryptoLib ---- */
-            int32_t status = apqs_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
-            if (CRYPTO_LIB_SUCCESS != status)
+            int32_t status = APQS_CFS_TC_ProcessSecurity(srcBuff, (int *)(&srcSize), &tcBuff);
+            if (APQS_CFS_SUCCESS != status)
             {
                 CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                                   "CI Crypto: could not process TC errno = %i\n", status);
                 return CFE_STATUS_VALIDATION_FAILURE;
             }
 
-            /* tc_current_managed_parameters_struct is populated by Crypto_TC_ProcessSecurity. */
-            has_seg_hdr = (tc_current_managed_parameters_struct.has_segmentation_hdr == TC_HAS_SEGMENT_HDRS);
+            /* Reflects the frame APQS_CFS_TC_ProcessSecurity just handled. */
+            has_seg_hdr = APQS_CFS_TC_CurrentFrameHasSegmentHdr();
 
             /* EP reply detected by the dedicated EP App ID (CRYPTOLIB_APPID = 384). */
             if ((((tcBuff.tc_pdu[0] & 0x07) << 8) | tcBuff.tc_pdu[1]) == CRYPTOLIB_APPID)
@@ -571,8 +567,8 @@ CFE_Status_t CI_LAB_DecodeInputMessage(void *srcBuff, size_t srcSize, CFE_SB_Buf
             // Detect SDLS EP by Cryptolib AppId
             if ((((tcBuff.tc_pdu[0] & 0x07) << 8) | tcBuff.tc_pdu[1]) == CRYPTOLIB_APPID)
             {
-                int32_t ep_status = apqs_Process_Clear_TC_EP(ptr, (int)srcSize);
-                if (ep_status != CRYPTO_LIB_SUCCESS)
+                int32_t ep_status = APQS_CFS_ProcessClearTcEp(ptr, (int)srcSize);
+                if (ep_status != APQS_CFS_SUCCESS)
                 {
                     CFE_EVS_SendEvent(CI_LAB_INGEST_LEN_ERR_EID, CFE_EVS_EventType_ERROR,
                                       "CI Crypto: clear EP process failed errno=%i\n", (int)ep_status);
